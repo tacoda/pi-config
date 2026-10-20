@@ -7,7 +7,19 @@
   "packages": [
     "npm:pi-subagents",
     "npm:pi-claude-bridge",
-    "git:github.com/DietrichGebert/ponytail"
+    "git:github.com/DietrichGebert/ponytail",
+    "npm:pi-web-access",
+    "npm:@juicesharp/rpiv-ask-user-question",
+    "npm:@juicesharp/rpiv-todo",
+    "npm:pi-goal-x",
+    "npm:pi-lens",
+    "npm:pi-powerline-footer",
+    "npm:agent-simple-english",
+    "npm:cc-safety-net",
+    "npm:pi-btw",
+    "npm:pi-prompt-template-model",
+    "npm:pi-intercom",
+    "npm:pi-advisor-flow"
   ],
   "hideThinkingBlock": false
 }
