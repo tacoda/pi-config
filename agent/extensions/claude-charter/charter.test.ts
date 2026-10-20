@@ -1,6 +1,6 @@
 // Run: node --test agent/extensions/claude-charter/charter.test.ts
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -15,7 +15,11 @@ import {
 	loadCharter,
 	matcherMatches,
 	matchingRules,
+	projectResources,
+	renameNote,
+	repoPrefix,
 	rulePaths,
+	withSkillName,
 	runHook,
 	verdict,
 } from "./charter.ts";
@@ -98,6 +102,50 @@ test("hookEvents lists every event with a command hook, and flags an unreadable 
 	mkdirSync(join(bare, ".claude"));
 	writeFileSync(join(bare, ".claude", "settings.json"), JSON.stringify({ permissions: { allow: ["Bash(ls)"] } }));
 	assert.deepEqual(hookEvents(bare), []);
+});
+
+test("withSkillName replaces or adds the frontmatter name and keeps the body", () => {
+	assert.equal(withSkillName("---\nname: implement\ndescription: d\n---\nbody", "repo-implement"), "---\nname: repo-implement\ndescription: d\n---\nbody");
+	assert.equal(withSkillName("---\ndescription: d\n---\nbody", "x"), "---\nname: x\ndescription: d\n---\nbody");
+	assert.equal(repoPrefix("/Users/me/Code/Parento Portal_2"), "parento-portal-2");
+});
+
+test("projectResources renames only colliding skills and commands", () => {
+	const root = fixture();
+	const skills = join(root, ".claude", "skills");
+	mkdirSync(join(skills, "implement", "references"), { recursive: true });
+	writeFileSync(join(skills, "implement", "SKILL.md"), "---\nname: implement\ndescription: repo implement\n---\nSee references/flow.md");
+	writeFileSync(join(skills, "implement", "references", "flow.md"), "flow");
+	mkdirSync(join(skills, "drive"));
+	writeFileSync(join(skills, "drive", "SKILL.md"), "---\nname: drive\ndescription: d\n---\nRun /implement");
+	mkdirSync(join(root, ".claude", "commands"));
+	writeFileSync(join(root, ".claude", "commands", "learn.md"), "repo learn");
+	writeFileSync(join(root, ".claude", "commands", "curator.md"), "curator");
+
+	const out = mkdtempSync(join(tmpdir(), "generated-"));
+	const taken = { skills: new Set(["implement", "tdd"]), prompts: new Set(["learn", "review"]) };
+	const prefix = repoPrefix(root);
+	const result = projectResources(root, taken, out);
+
+	const copy = join(out, "skills", `${prefix}-implement`);
+	assert.deepEqual(result.skillPaths, [join(skills, "drive"), copy]);
+	assert.match(readFileSync(join(copy, "SKILL.md"), "utf8"), new RegExp(`^---\\nname: ${prefix}-implement\\n`));
+	assert.equal(readFileSync(join(copy, "references", "flow.md"), "utf8"), "flow");
+	const learnCopy = join(out, "commands", `${prefix}-learn.md`);
+	assert.deepEqual(result.promptPaths, [join(root, ".claude", "commands", "curator.md"), learnCopy]);
+	assert.equal(readFileSync(learnCopy, "utf8"), "repo learn");
+	assert.deepEqual(
+		result.renamed.map((entry) => `${entry.kind}:${entry.from}->${entry.to}`),
+		[`skill:implement->${prefix}-implement`, `command:learn->${prefix}-learn`],
+	);
+
+	// A second run over the same output directory succeeds, as on /reload.
+	assert.deepEqual(projectResources(root, taken, out).skillPaths, result.skillPaths);
+	assert.ok(existsSync(realpathSync(join(copy, "references"))));
+
+	const note = renameNote(result.renamed);
+	assert.match(note, new RegExp(`\`/implement\` or skill \`implement\` means \`/skill:${prefix}-implement\``));
+	assert.match(note, new RegExp(`\`/learn\` means the prompt \`/${prefix}-learn\``));
 });
 
 test("matcherMatches anchors the regex and treats empty and * as match-all", () => {

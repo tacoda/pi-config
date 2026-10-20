@@ -24,7 +24,6 @@
  * bridge until the person chooses to send it.
  */
 
-import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
@@ -34,12 +33,17 @@ import {
 	claudeToolCall,
 	explicitlyTrusted,
 	findProjectRoot,
+	GENERATED_BASE,
+	generatedDir,
 	hookEvents,
 	hooksFor,
 	isAlwaysOn,
 	loadHooks,
 	loadRules,
 	matchingRules,
+	projectResources,
+	type Renamed,
+	renameNote,
 	runHook,
 	verdict,
 } from "./charter.ts";
@@ -62,10 +66,12 @@ export default function (pi: ExtensionAPI) {
 	const injected = new Set<string>();
 	// Set when an untrusted repo declares hooks the bridge would run.
 	let exposure: string | undefined;
+	let renamed: Renamed[] = [];
 
 	pi.on("session_start", async (_event, ctx) => {
 		charter = undefined;
 		exposure = undefined;
+		renamed = [];
 		injected.clear();
 		const found = findProjectRoot(ctx.cwd);
 		if (found && !isTrusted(ctx.cwd, ctx)) {
@@ -113,11 +119,28 @@ export default function (pi: ExtensionAPI) {
 	pi.on("resources_discover", async (event, ctx) => {
 		const root = trustedRoot(event.cwd, ctx);
 		if (!root) return;
-		const dir = (name: string) => join(root, ".claude", name);
-		return {
-			skillPaths: existsSync(dir("skills")) ? [dir("skills")] : [],
-			promptPaths: existsSync(dir("commands")) ? [dir("commands")] : [],
-		};
+		// At this event pi holds the user and project resources. It adds every extension's paths after it.
+		const own = join(root, ".claude");
+		const taken = { skills: new Set<string>(), prompts: new Set<string>() };
+		for (const command of pi.getCommands()) {
+			const path = command.sourceInfo?.path ?? "";
+			if (path.startsWith(own) || path.startsWith(GENERATED_BASE)) continue;
+			if (command.source === "skill") taken.skills.add(command.name.replace(/^skill:/, ""));
+			else taken.prompts.add(command.name);
+		}
+		try {
+			const resources = projectResources(root, taken, generatedDir(root));
+			renamed = resources.renamed;
+			if (renamed.length && ctx.hasUI) {
+				const names = renamed.map((entry) => `${entry.from} -> ${entry.kind === "skill" ? "skill:" : ""}${entry.to}`).join(", ");
+				ctx.ui.notify(`claude-charter renamed repo ${renamed.length === 1 ? "entry" : "entries"} that pi already had: ${names}`, "info");
+			}
+			return { skillPaths: resources.skillPaths, promptPaths: resources.promptPaths };
+		} catch (error) {
+			const message = `claude-charter: could not prepare .claude/skills and .claude/commands (${(error as Error).message}). Fix the cause, then run /reload.`;
+			if (ctx.hasUI) ctx.ui.notify(message, "error");
+			else console.error(message);
+		}
 	});
 
 	pi.on("before_agent_start", async (event) => {
@@ -127,6 +150,10 @@ export default function (pi: ExtensionAPI) {
 			if (isAlwaysOn(rule) && !files.some((file) => file.path === rule.file)) {
 				files.push({ path: rule.file, content: rule.body });
 			}
+		}
+		const notePath = join(charter.root, ".claude", "(renamed by claude-charter)");
+		if (renamed.length && !files.some((file) => file.path === notePath)) {
+			files.push({ path: notePath, content: renameNote(renamed) });
 		}
 	});
 

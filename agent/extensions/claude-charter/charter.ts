@@ -5,9 +5,10 @@
  */
 
 import { spawn } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, isAbsolute, join, matchesGlob, relative, resolve } from "node:path";
+import { createHash } from "node:crypto";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { basename, dirname, isAbsolute, join, matchesGlob, relative, resolve } from "node:path";
 
 export interface Rule {
 	file: string;
@@ -221,6 +222,116 @@ export function hookEvents(root: string): string[] {
 		}
 	}
 	return [...events].sort();
+}
+
+export interface Renamed {
+	kind: "skill" | "command";
+	from: string;
+	to: string;
+	source: string;
+}
+
+export interface ProjectResources {
+	skillPaths: string[];
+	promptPaths: string[];
+	renamed: Renamed[];
+}
+
+/** Where renamed copies live. Outside the repo, so they never show up in its git status. */
+export const GENERATED_BASE = join(tmpdir(), "pi-claude-charter");
+
+export function generatedDir(root: string): string {
+	return join(GENERATED_BASE, createHash("sha256").update(root).digest("hex").slice(0, 12));
+}
+
+/** The repo directory name as a skill-name prefix: lowercase letters, digits and hyphens. */
+export function repoPrefix(root: string): string {
+	return basename(root).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "repo";
+}
+
+export function skillName(markdown: string, fallback: string): string {
+	const front = /^---\r?\n([\s\S]*?)\r?\n---/.exec(markdown)?.[1] ?? "";
+	const name = /^name\s*:\s*(.+)$/m.exec(front)?.[1];
+	return name ? unquote(name) : fallback;
+}
+
+/** The skill text with its frontmatter `name` set, added when missing. */
+export function withSkillName(markdown: string, name: string): string {
+	const match = /^(---\r?\n)([\s\S]*?)(\r?\n---)/.exec(markdown);
+	if (!match) return `---\nname: ${name}\n---\n${markdown}`;
+	const front = /^name\s*:/m.test(match[2]) ? match[2].replace(/^name\s*:.*$/m, `name: ${name}`) : `name: ${name}\n${match[2]}`;
+	return match[1] + front + match[3] + markdown.slice(match[0].length);
+}
+
+/**
+ * Paths for the repo's .claude/skills and .claude/commands. pi keeps the first
+ * skill or prompt of each name, and it loads extension paths last. So pi would
+ * skip a repo name that it already has. Each colliding one gets a renamed copy
+ * as `<repo>-<name>`. A copied skill links its other files back to the repo.
+ */
+export function projectResources(root: string, taken: { skills: Set<string>; prompts: Set<string> }, outDir: string): ProjectResources {
+	const result: ProjectResources = { skillPaths: [], promptPaths: [], renamed: [] };
+	const prefix = repoPrefix(root);
+
+	const skillsDir = join(root, ".claude", "skills");
+	if (existsSync(skillsDir)) {
+		for (const entry of readdirSync(skillsDir).sort()) {
+			const dir = join(skillsDir, entry);
+			const file = join(dir, "SKILL.md");
+			if (!statSync(dir).isDirectory() || !existsSync(file)) continue;
+			const text = readFileSync(file, "utf8");
+			const name = skillName(text, entry);
+			if (!taken.skills.has(name)) {
+				result.skillPaths.push(dir);
+				continue;
+			}
+			const to = `${prefix}-${name}`;
+			const copy = join(outDir, "skills", to);
+			mkdirSync(copy, { recursive: true });
+			writeFileSync(join(copy, "SKILL.md"), withSkillName(text, to));
+			for (const sibling of readdirSync(dir)) {
+				const link = join(copy, sibling);
+				if (sibling !== "SKILL.md" && !lstatSync(link, { throwIfNoEntry: false })) symlinkSync(join(dir, sibling), link);
+			}
+			result.skillPaths.push(copy);
+			result.renamed.push({ kind: "skill", from: name, to, source: relative(root, file) });
+		}
+	}
+
+	const commandsDir = join(root, ".claude", "commands");
+	if (existsSync(commandsDir)) {
+		for (const entry of readdirSync(commandsDir).sort()) {
+			const file = join(commandsDir, entry);
+			if (!entry.endsWith(".md") || !statSync(file).isFile()) continue;
+			const name = entry.slice(0, -".md".length);
+			if (!taken.prompts.has(name)) {
+				result.promptPaths.push(file);
+				continue;
+			}
+			const to = `${prefix}-${name}`;
+			const copy = join(outDir, "commands", `${to}.md`);
+			mkdirSync(dirname(copy), { recursive: true });
+			writeFileSync(copy, readFileSync(file, "utf8"));
+			result.promptPaths.push(copy);
+			result.renamed.push({ kind: "command", from: name, to, source: relative(root, file) });
+		}
+	}
+	return result;
+}
+
+/** Tells the model which name to use when the repo's own files name a renamed skill or command. */
+export function renameNote(renamed: Renamed[]): string {
+	const lines = renamed.map((entry) =>
+		entry.kind === "skill"
+			? `- \`/${entry.from}\` or skill \`${entry.from}\` means \`/skill:${entry.to}\` (${entry.source}).`
+			: `- \`/${entry.from}\` means the prompt \`/${entry.to}\`. To run it yourself, read ${entry.source} and follow it.`,
+	);
+	return [
+		"pi already had a skill or command with each name below, so claude-charter renamed this repository's version.",
+		"When a file in this repository's .claude/ names one, it means the repository's version:",
+		...lines,
+		"The user-level skill or command with the original name is a different one.",
+	].join("\n");
 }
 
 export function loadCharter(root: string): Charter {

@@ -110,6 +110,11 @@ In a trusted repo, the extension does four things:
 - A rule with `paths:` globs arrives with the first read, edit or write of a
   matching file. It arrives again after a compaction.
 - `.claude/skills/` and `.claude/commands/` become skills and prompt templates.
+  pi keeps the first skill or prompt of each name, and it loads extension
+  paths last. So the extension renames each repo entry whose name pi already
+  has to `<repo>-<name>`, for example `/skill:parento-portal-implement`. A
+  context note tells the model that the repo's `/implement` means the renamed
+  skill.
 - PreToolUse and PostToolUse hooks in `.claude/settings.json` and
   `settings.local.json` run on pi's built-in tools. A hook that exits 2 blocks
   the call, as in Claude Code.
@@ -216,10 +221,10 @@ and then.
   hooks.** Under the bridge, Claude Code already runs the first two, and a
   second run doubles slow checks. Under another provider, none of the three
   run.
-- **A repo skill or command loses a name collision.** pi adds extension paths
-  after user paths and keeps the first skill of each name. A repo's
-  `.claude/skills/implement` loses to the shared `implement` skill, and pi
-  prints a collision warning.
+- **A renamed repo skill keeps its old name in your typing habits.** Typing
+  `/skill:implement` still loads the user-level skill. The rename note covers
+  the model, not you. The renamed copies live under
+  `$TMPDIR/pi-claude-charter/`, and `/reload` rebuilds them.
 - **`claude-charter` supports part of the hook output contract.** Exit codes,
   `permissionDecision` deny and ask, and `decision: block` work. `updatedInput`
   does not. PostToolUse hooks receive `{ success, output }`, not Claude Code's
