@@ -2,6 +2,7 @@
 // Checks that this machine matches the repository. Makes no changes, calls no
 // model, and needs no network. Exits 1 if any check fails; each failure names
 // the fix.
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -41,6 +42,13 @@ for (const rel of trackedFiles()) {
 		fail(`agent/${rel} is not valid JSON: ${(error as Error).message}`, "fix the syntax error at the position in that message");
 	}
 }
+// Extension logic that decides what blocks a tool call carries its own tests.
+const tests = trackedFiles().filter((rel) => rel.endsWith(".test.ts")).map((rel) => join("agent", rel));
+if (tests.length) {
+	const result = spawnSync(process.execPath, ["--test", "--test-reporter=dot", ...tests], { cwd: REPO, encoding: "utf8" });
+	if (result.status !== 0) fail(`extension tests fail:\n${result.stdout}${result.stderr}`, `node --test ${tests.join(" ")}`);
+}
+
 for (const link of staleLinks()) fail(`${link} points at a file that is no longer in the repository`, "./install.ts");
 
 for (const source of missingPackages()) fail(`pi package ${source} is not installed`, `./install.ts, or pi install ${source}`);
