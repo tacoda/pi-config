@@ -1,0 +1,11 @@
+# Shared skills, installed to ~/.agents/skills for pi by install.sh.
+# One source per line: <github owner/repo> <skill> [<skill> ...]
+# install.sh adds only the skills that are missing; it never upgrades one.
+# chunk-sidecar is not listed here: CircleCI's `chunk skill install` owns it.
+
+humanlayer/skills show-me
+vercel-labs/skills find-skills
+mattpocock/skills ask-matt code-review codebase-design diagnosing-bugs domain-modeling grill-me grill-with-docs grilling handoff implement implement-spec improve-codebase-architecture loop-me migrate-to-shoehorn prototype research resolving-merge-conflicts retro scaffold-exercises setup-matt-pocock-skills setup-pre-commit setup-ts-deep-modules tdd teach to-questionnaire to-spec to-tickets triage wait-what wayfinder wizard writing-beats writing-for-agents writing-fragments writing-shape
+tacoda/constraint-engineering agent-charter-authoring agent-charter-operations agent-harness-building agent-legible-codebase agent-orchestration agent-primitives harness-engineering
+addyosmani/agent-skills api-and-interface-design browser-testing-with-devtools ci-cd-and-automation code-review-and-quality code-simplification constraint-driven-development context-engineering debugging-and-error-recovery deprecation-and-migration documentation-and-adrs doubt-driven-development frontend-ui-engineering git-workflow-and-versioning idea-refine incremental-implementation interview-me observability-and-instrumentation performance-optimization planning-and-task-breakdown security-and-hardening shipping-and-launch source-driven-development spec-driven-development test-driven-development using-agent-skills
+JuliusBrussee/caveman caveman caveman-commit caveman-help caveman-review

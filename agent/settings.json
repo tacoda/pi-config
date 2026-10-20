@@ -1,0 +1,13 @@
+{
+  "lastChangelogVersion": "1.3.0",
+  "defaultProvider": "claude-bridge",
+  "defaultModel": "claude-opus-5-5",
+  "defaultThinkingLevel": "high",
+  "theme": "ember",
+  "packages": [
+    "npm:pi-subagents",
+    "npm:pi-claude-bridge",
+    "git:github.com/DietrichGebert/ponytail"
+  ],
+  "hideThinkingBlock": false
+}

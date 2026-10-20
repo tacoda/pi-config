@@ -1,0 +1,16 @@
+# pi writes credentials and machine state into its agent directory. They never
+# belong here, even if PI_CODING_AGENT_DIR is pointed at agent/.
+agent/auth.json
+agent/models-store.json
+agent/trust.json
+agent/sessions/
+agent/missions/
+agent/pi-subagents/
+agent/npm/
+agent/git/
+agent/skills/
+agent/extensions/rtk.ts
+*.log
+.env
+.env.*
+.DS_Store
