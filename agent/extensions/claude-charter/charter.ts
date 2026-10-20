@@ -197,6 +197,32 @@ export function loadHooks(root: string): Record<HookEvent, HookGroup[]> {
 	return hooks;
 }
 
+/**
+ * Every hook event the project settings declare a command for. pi-claude-bridge
+ * starts Claude Code with project settings, so these run with no pi trust check.
+ * An unreadable file counts as a finding, because nobody can say what it runs.
+ */
+export function hookEvents(root: string): string[] {
+	const events = new Set<string>();
+	for (const name of ["settings.json", "settings.local.json"]) {
+		const path = join(root, ".claude", name);
+		if (!existsSync(path)) continue;
+		let settings: { hooks?: Record<string, unknown> };
+		try {
+			settings = JSON.parse(readFileSync(path, "utf8"));
+		} catch {
+			events.add(`unreadable ${name}`);
+			continue;
+		}
+		for (const [event, groups] of Object.entries(settings.hooks ?? {})) {
+			if (!Array.isArray(groups)) continue;
+			const hasCommand = groups.some((group) => (group?.hooks ?? []).some((hook: { type?: string }) => hook?.type === "command"));
+			if (hasCommand) events.add(event);
+		}
+	}
+	return [...events].sort();
+}
+
 export function loadCharter(root: string): Charter {
 	return { root, rules: loadRules(root), hooks: loadHooks(root) };
 }

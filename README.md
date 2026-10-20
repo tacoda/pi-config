@@ -118,6 +118,13 @@ pi's own trust flag is not enough for this gate. pi trusts a folder with no
 `.pi/` resources without asking, so a cloned repo's hooks would run unasked.
 After you edit a rule or a hook, run `/reload`.
 
+The extension also guards untrusted repos. `pi-claude-bridge` starts Claude
+Code with the repo's settings, and Claude Code runs the repo's hooks with no
+trust check. A repo can declare hooks and have no `/trust` entry. There,
+`claude-charter` holds each prompt while the provider is `claude-bridge`. You
+choose "Do not send" or "Send anyway, for this session only". In print mode,
+it refuses the prompt and prints the fix on stderr.
+
 ### Other tools from packages
 
 | Package | What it adds |
@@ -201,9 +208,10 @@ and then.
 - **Claude Code settings still apply inside bridge turns.** The bridge runs
   Claude Code with user and project settings. Hooks in `~/.claude/settings.json`
   and a repo's `.claude/settings.json` fire unless they match on tool names.
-- **The bridge runs a repo's SessionStart and Stop hooks without asking.** In a
-  test, a fixture repo's hooks ran with no pi trust entry. Read
-  `.claude/settings.json` before you open an unfamiliar repo in pi.
+- **The untrusted-repo guard covers typed prompts only.** It acts on pi's
+  `input` event. A turn that an extension starts with a custom message skips
+  it. A subagent in an unguarded repo stops at the guard, so run `/trust`
+  first. In print mode, pi exits 0 even when the guard refuses the prompt.
 - **`claude-charter` does not run SessionStart, Stop or UserPromptSubmit
   hooks.** Under the bridge, Claude Code already runs the first two, and a
   second run doubles slow checks. Under another provider, none of the three

@@ -9,6 +9,7 @@ import {
 	claudeToolCall,
 	explicitlyTrusted,
 	findProjectRoot,
+	hookEvents,
 	hooksFor,
 	isAlwaysOn,
 	loadCharter,
@@ -86,6 +87,17 @@ test("loadHooks throws on a broken settings file instead of dropping its guards"
 	const root = fixture();
 	writeFileSync(join(root, ".claude", "settings.json"), "{ not json");
 	assert.throws(() => loadCharter(root), /not valid JSON.*\/reload/);
+});
+
+test("hookEvents lists every event with a command hook, and flags an unreadable file", () => {
+	const root = fixture();
+	assert.deepEqual(hookEvents(root), ["PostToolUse", "PreToolUse", "Stop"]);
+	writeFileSync(join(root, ".claude", "settings.local.json"), "{ not json");
+	assert.deepEqual(hookEvents(root), ["PreToolUse", "Stop", "unreadable settings.local.json"]);
+	const bare = mkdtempSync(join(tmpdir(), "no-hooks-"));
+	mkdirSync(join(bare, ".claude"));
+	writeFileSync(join(bare, ".claude", "settings.json"), JSON.stringify({ permissions: { allow: ["Bash(ls)"] } }));
+	assert.deepEqual(hookEvents(bare), []);
 });
 
 test("matcherMatches anchors the regex and treats empty and * as match-all", () => {

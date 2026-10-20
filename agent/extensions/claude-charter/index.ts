@@ -17,6 +17,11 @@
  *
  * This extension does not run SessionStart, Stop or UserPromptSubmit hooks. The bridge's
  * Claude Code child already fires them, and a second run doubles slow checks.
+ *
+ * That child loads project settings with no trust check, so an untrusted repo's
+ * hooks run as shell commands at the first prompt. A repo can declare hooks and
+ * have no explicit /trust entry. There, this extension holds each prompt for the
+ * bridge until the person chooses to send it.
  */
 
 import { existsSync } from "node:fs";
@@ -29,6 +34,7 @@ import {
 	claudeToolCall,
 	explicitlyTrusted,
 	findProjectRoot,
+	hookEvents,
 	hooksFor,
 	isAlwaysOn,
 	loadHooks,
@@ -40,18 +46,37 @@ import {
 
 const FILE_TOOLS = new Set(["read", "edit", "write"]);
 
+// AskClaude, the bridge's other route into Claude Code, is off by default.
+const BRIDGE_PROVIDER = "claude-bridge";
+
+function isTrusted(cwd: string, ctx: ExtensionContext): boolean {
+	return ctx.isProjectTrusted() && explicitlyTrusted(cwd, getAgentDir());
+}
+
 function trustedRoot(cwd: string, ctx: ExtensionContext): string | undefined {
-	if (!ctx.isProjectTrusted() || !explicitlyTrusted(cwd, getAgentDir())) return undefined;
-	return findProjectRoot(cwd);
+	return isTrusted(cwd, ctx) ? findProjectRoot(cwd) : undefined;
 }
 
 export default function (pi: ExtensionAPI) {
 	let charter: Charter | undefined;
 	const injected = new Set<string>();
+	// Set when an untrusted repo declares hooks the bridge would run.
+	let exposure: string | undefined;
 
 	pi.on("session_start", async (_event, ctx) => {
 		charter = undefined;
+		exposure = undefined;
 		injected.clear();
+		const found = findProjectRoot(ctx.cwd);
+		if (found && !isTrusted(ctx.cwd, ctx)) {
+			const events = hookEvents(found);
+			if (events.length) {
+				exposure =
+					`${found}/.claude declares hooks (${events.join(", ")}). ` +
+					`${BRIDGE_PROVIDER} makes Claude Code run them as shell commands with your permissions. ` +
+					"pi has no explicit trust entry for this folder.";
+			}
+		}
 		const root = trustedRoot(ctx.cwd, ctx);
 		if (!root) return;
 		charter = { root, rules: loadRules(root), hooks: { PreToolUse: [], PostToolUse: [] } };
@@ -62,6 +87,23 @@ export default function (pi: ExtensionAPI) {
 			if (ctx.hasUI) ctx.ui.notify(message, "error");
 			else console.error(message);
 		}
+	});
+
+	pi.on("input", async (_event, ctx) => {
+		if (!exposure || ctx.model?.provider !== BRIDGE_PROVIDER) return { action: "continue" };
+		const fix = "Read .claude/settings.json and .claude/settings.local.json. If you accept the hooks, run /trust, then /reload.";
+		if (ctx.hasUI) {
+			const send = "Send anyway, for this session only";
+			const choice = await ctx.ui.select(exposure, ["Do not send, I will review the hooks first", send]);
+			if (choice === send) {
+				exposure = undefined;
+				return { action: "continue" };
+			}
+			ctx.ui.notify(`claude-charter: prompt not sent. ${fix}`, "warning");
+		} else {
+			console.error(`claude-charter: prompt not sent. ${exposure} ${fix}`);
+		}
+		return { action: "handled" };
 	});
 
 	// A compaction or tree move can drop the turn that carried a rule, so offer it again.
